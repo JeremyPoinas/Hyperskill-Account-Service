@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 @Entity
 public class AppUser {
@@ -13,17 +13,15 @@ public class AppUser {
     @GeneratedValue(strategy=GenerationType.AUTO, generator="APP_USER_SEQ")
     private long id;
     @NotEmpty(message = "name required")
-    @NotNull
     private String name;
     @NotEmpty(message = "lastname required")
-    @NotNull
     private String lastname;
     @Email(regexp = "^(.+)@acme\\.com$", message = "Mail does not include @acme.com")
-    @NotNull
+    @NotEmpty(message = "email required")
     private String email;
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @NotEmpty(message = "password required")
-    @NotNull
+    @Size(min = 5, message = "The password length must be at least 5 chars!")
     private String password;
 
     public AppUser() {
