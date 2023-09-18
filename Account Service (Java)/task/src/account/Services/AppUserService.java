@@ -1,6 +1,6 @@
 package account.Services;
 
-import account.Exceptions.UserExistException;
+import account.Exceptions.UserExistenceException;
 import account.Exceptions.WrongPasswordException;
 import account.Models.AppUser;
 import account.Models.UserDetailsImpl;
@@ -36,7 +36,7 @@ public class AppUserService implements UserDetailsService {
     public ResponseEntity<AppUser> signup(AppUser appUser) {
         assertPasswordBreached(appUser.getPassword());
         if (repository.existsUserByEmailIgnoreCase(appUser.getEmail())) {
-            throw new UserExistException();
+            throw new UserExistenceException("User exist!");
         } else {
             appUser.setEmail(appUser.getEmail().toLowerCase());
             appUser.setPassword(encoder.encode(appUser.getPassword()));
@@ -63,7 +63,7 @@ public class AppUserService implements UserDetailsService {
         assertPasswordBreached(newPassword);
         assertPasswordDifferent(newPassword, userDetails.getPassword());
 
-        AppUser appUser = repository.findByEmailIgnoreCase(userDetails.getUsername()).orElseThrow(UserExistException::new);
+        AppUser appUser = repository.findByEmailIgnoreCase(userDetails.getUsername()).orElseThrow(() -> new UserExistenceException("User exist!"));
         appUser.setPassword(encoder.encode(newPassword));
         repository.save(appUser);
         Map<String, String> response = Map.of(

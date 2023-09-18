@@ -1,4 +1,4 @@
-package account.Models;
+package account.Models.Requests;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.Size;

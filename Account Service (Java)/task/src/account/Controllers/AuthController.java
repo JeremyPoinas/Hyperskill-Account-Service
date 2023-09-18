@@ -1,7 +1,7 @@
 package account.Controllers;
 
 import account.Models.AppUser;
-import account.Models.PasswordChangedRequest;
+import account.Models.Requests.PasswordChangedRequest;
 import account.Models.UserDetailsImpl;
 import account.Services.AppUserService;
 import jakarta.validation.Valid;
@@ -33,8 +33,8 @@ public class AuthController {
         return appUserService.changePassword(userDetails, request.getNewPassword());
     }
 
-    @GetMapping("/api/empl/payment")
+    /*@GetMapping("/api/empl/payment")
     public ResponseEntity<AppUser> test(@AuthenticationPrincipal UserDetailsImpl userDetails) {
         return appUserService.getUserInfo(userDetails);
-    }
+    }*/
 }
