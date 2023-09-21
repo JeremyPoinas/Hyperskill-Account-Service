@@ -1,24 +1,28 @@
 package account.Services;
 
-import account.Exceptions.UserExistenceException;
-import account.Exceptions.WrongPasswordException;
+import account.Exceptions.*;
 import account.Models.AppUser;
-import account.Models.UserDetailsImpl;
+import account.Models.RoleGroup;
+import account.Repositories.RoleGroupRepository;
 import account.Repositories.UserRepository;
+import jakarta.transaction.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 public class AppUserService implements UserDetailsService {
-    private final UserRepository repository;
+    private final UserRepository userRepository;
+    private final RoleGroupRepository groupRepository;
 
     private final PasswordEncoder encoder;
 
@@ -27,45 +31,65 @@ public class AppUserService implements UserDetailsService {
             "PasswordForMay", "PasswordForJune", "PasswordForJuly", "PasswordForAugust",
             "PasswordForSeptember", "PasswordForOctober", "PasswordForNovember", "PasswordForDecember"
     );
-
-    public AppUserService(UserRepository repository, PasswordEncoder encoder) {
-        this.repository = repository;
+    @Autowired
+    public AppUserService(UserRepository userRepository, RoleGroupRepository groupRepository, PasswordEncoder encoder) {
+        this.userRepository = userRepository;
+        this.groupRepository = groupRepository;
         this.encoder = encoder;
     }
 
     public ResponseEntity<AppUser> signup(AppUser appUser) {
-        assertPasswordBreached(appUser.getPassword());
-        if (repository.existsUserByEmailIgnoreCase(appUser.getEmail())) {
-            throw new UserExistenceException("User exist!");
-        } else {
-            appUser.setEmail(appUser.getEmail().toLowerCase());
-            appUser.setPassword(encoder.encode(appUser.getPassword()));
-            repository.save(appUser);
-            return ResponseEntity.ok(appUser);
+        if (userRepository.existsUserByEmailIgnoreCase(appUser.getEmail())) {
+            throw new BadRequestException("User exist!");
         }
+        assertPasswordBreached(appUser.getPassword());
+
+        if (userRepository.count() == 0) {
+            grantRole(appUser, "ADMINISTRATOR");
+        } else {
+            grantRole(appUser, "USER");
+        }
+
+        appUser.setEmail(appUser.getEmail().toLowerCase());
+        appUser.setPassword(encoder.encode(appUser.getPassword()));
+        userRepository.save(appUser);
+        return ResponseEntity.ok(appUser);
     }
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        AppUser appUser = repository
+        AppUser appUser = userRepository
                 .findByEmailIgnoreCase(email)
-                .orElseThrow(() -> new UsernameNotFoundException("Not found"));
+                .orElseThrow(() -> new BadRequestException("User not found!"));
 
-        return new UserDetailsImpl(appUser);
+        return User.withUsername(appUser.getEmail())
+                .password(appUser.getPassword())
+                .authorities(getAuthorities(appUser)).build();
     }
 
-    public ResponseEntity<AppUser> getUserInfo(UserDetailsImpl userDetails) {
-        Optional<AppUser> user = repository.findByEmailIgnoreCase(userDetails.getUsername());
-        return ResponseEntity.of(user);
+    public AppUser loadAppUserByEmail(String email) {
+        return userRepository
+                .findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new NotFoundException("User not found!"));
     }
 
-    public ResponseEntity<Map<String, String>> changePassword(UserDetailsImpl userDetails, String newPassword) {
+    private Collection<GrantedAuthority> getAuthorities(AppUser appUser) {
+        Set<RoleGroup> userRoles = appUser.getRoles();
+        Collection<GrantedAuthority> authorities = new ArrayList<> (userRoles.size());
+        for (RoleGroup userRole : userRoles) {
+            authorities.add(new SimpleGrantedAuthority(userRole.getCode().toUpperCase()));
+        }
+        return authorities;
+    }
+
+    public ResponseEntity<Map<String, String>> changePassword(User userDetails, String newPassword) {
         assertPasswordBreached(newPassword);
-        assertPasswordDifferent(newPassword, userDetails.getPassword());
 
-        AppUser appUser = repository.findByEmailIgnoreCase(userDetails.getUsername()).orElseThrow(() -> new UserExistenceException("User exist!"));
+        AppUser appUser = userRepository.findByEmailIgnoreCase(userDetails.getUsername()).orElseThrow(() -> new BadRequestException("User exist!"));
+        assertPasswordDifferent(newPassword, appUser.getPassword());
+
         appUser.setPassword(encoder.encode(newPassword));
-        repository.save(appUser);
+        userRepository.save(appUser);
         Map<String, String> response = Map.of(
                 "status", "The password has been updated successfully",
                 "email", appUser.getEmail()
@@ -75,13 +99,80 @@ public class AppUserService implements UserDetailsService {
 
     private void assertPasswordBreached(String password) {
         if (breachedPasswords.contains(password)) {
-            throw new WrongPasswordException("The password is in the hacker's database!");
+            throw new BadRequestException("The password is in the hacker's database!");
         }
     }
 
     private void assertPasswordDifferent(String newPassword, String hashOldPassword) {
         if (encoder.matches(newPassword, hashOldPassword)) {
-            throw new WrongPasswordException("The passwords must be different!");
+            throw new BadRequestException("The passwords must be different!");
         }
+    }
+
+    public ResponseEntity<List<AppUser>> getUsers() {
+        List<AppUser> users = userRepository.findAllByOrderByIdAsc();
+        return ResponseEntity.ok(users);
+    }
+
+    @Transactional
+    public ResponseEntity<Map<String, String>> deleteUser(String email) {
+        if (!userRepository.existsUserByEmailIgnoreCase(email)) {
+            throw new NotFoundException("User not found!");
+        }
+
+        AppUser appUser = loadAppUserByEmail(email);
+        if (hasAdminRole(appUser)) {
+            throw new BadRequestException("Can't remove ADMINISTRATOR role!");
+        }
+
+        userRepository.delete(appUser);
+        Map<String, String> response = Map.of(
+                "status", "Deleted successfully!",
+                "user", email
+        );
+        return ResponseEntity.ok(response);
+    }
+
+
+    public void grantRole(AppUser user, String role) {
+        RoleGroup _role = groupRepository.findByName(role)
+                .orElseThrow(() -> new NotFoundException("Role not found!"));
+
+        boolean isAdmin = hasAdminRole(user);
+
+        if (!user.getRoles().isEmpty() && (isAdmin || role.equals("ADMINISTRATOR"))) {
+            throw new BadRequestException("The user cannot combine administrative and business roles!");
+        }
+
+        user.addRole(_role);
+        userRepository.save(user);
+    }
+
+    private boolean hasAdminRole(AppUser user) {
+        for (RoleGroup role : user.getRoles()) {
+            if (role.getName().equals("ADMINISTRATOR")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void removeRole(AppUser user, String role) {
+        if (role.equals("ADMINISTRATOR")) {
+            throw new BadRequestException("Can't remove ADMINISTRATOR role!");
+        }
+
+        RoleGroup _role = groupRepository.findByName(role)
+                .orElseThrow(() -> new BadRequestException("Role not found!"));
+
+        if (!user.getRoles().contains(_role)) {
+            throw new BadRequestException("The user does not have a role!");
+        }
+        if (user.getRoles().size() == 1) {
+            throw new BadRequestException("The user must have at least one role!");
+        }
+
+        user.removeRole(_role.getId());
+        userRepository.save(user);
     }
 }

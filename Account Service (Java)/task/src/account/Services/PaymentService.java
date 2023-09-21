@@ -1,16 +1,15 @@
 package account.Services;
 
-import account.Exceptions.PaymentExistenceException;
-import account.Exceptions.UserExistenceException;
+import account.Exceptions.BadRequestException;
 import account.Models.AppUser;
 import account.Models.Payment;
 import account.Models.Requests.NewPaymentRequest;
 import account.Models.Responses.GetPayrollResponse;
-import account.Models.UserDetailsImpl;
 import account.Repositories.PaymentRepository;
 import account.Repositories.UserRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -31,7 +30,7 @@ public class PaymentService {
         for (NewPaymentRequest newPaymentRequest : newPayments) {
             Payment payment = createPayment(newPaymentRequest);
             if (paymentRepository.existsPaymentByEmployeeAndPeriod(payment.getEmployee(), payment.getPeriod())) {
-                throw new PaymentExistenceException();
+                throw new BadRequestException("Error!");
             } else {
                 paymentRepository.save(payment);
             }
@@ -46,7 +45,7 @@ public class PaymentService {
         LocalDate period = parsePeriod(newPaymentRequest.getPeriod());
         AppUser employee = userRepository
                 .findByEmailIgnoreCase(newPaymentRequest.getEmployee())
-                .orElseThrow(() -> new UserExistenceException("User does not exist!"));
+                .orElseThrow(() -> new BadRequestException("User does not exist!"));
         return new Payment(employee, period, newPaymentRequest.getSalary());
     }
 
@@ -55,7 +54,7 @@ public class PaymentService {
         Payment newPayment = createPayment(newPaymentRequest);
         Payment paymentInDatabase = paymentRepository
                 .findPaymentByEmployeeAndPeriod(newPayment.getEmployee(), newPayment.getPeriod())
-                .orElseThrow(PaymentExistenceException::new);
+                .orElseThrow(() -> new BadRequestException("Error!"));
 
         paymentInDatabase.setSalary(newPayment.getSalary());
         paymentRepository.save(paymentInDatabase);
@@ -67,15 +66,15 @@ public class PaymentService {
     }
 
     public ResponseEntity<GetPayrollResponse> getPayroll(
-            UserDetailsImpl userDetails,
+            UserDetails userDetails,
             String period) {
         AppUser employee = userRepository
                 .findByEmailIgnoreCase(userDetails.getUsername())
-                .orElseThrow(() -> new UserExistenceException("User does not exist!"));
+                .orElseThrow(() -> new BadRequestException("User does not exist!"));
 
         Payment payment = paymentRepository
                 .findPaymentByEmployeeAndPeriod(employee, parsePeriod(period))
-                .orElseThrow(PaymentExistenceException::new);
+                .orElseThrow(() -> new BadRequestException("Error!"));
 
         GetPayrollResponse response = new GetPayrollResponse(
                 employee.getName(),
@@ -92,14 +91,14 @@ public class PaymentService {
         return LocalDate.parse("01-" + period, formatter);
     }
 
-    public ResponseEntity<List<GetPayrollResponse>> getAllPayrolls(UserDetailsImpl userDetails) {
+    public ResponseEntity<List<GetPayrollResponse>> getAllPayrolls(UserDetails userDetails) {
         AppUser employee = userRepository
                 .findByEmailIgnoreCase(userDetails.getUsername())
-                .orElseThrow(() -> new UserExistenceException("User does not exist!"));
+                .orElseThrow(() -> new BadRequestException("User does not exist!"));
 
         List<Payment> payments = paymentRepository
                 .findPaymentsByEmployeeOrderByPeriodDesc(employee)
-                .orElseThrow(PaymentExistenceException::new);
+                .orElseThrow(() -> new BadRequestException("Error!"));
 
         List<GetPayrollResponse> payrollsResponse = new ArrayList<>();
 
